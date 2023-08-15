@@ -56,7 +56,7 @@ describe('DAO', () => {
     // Set Quorum to > 50% of token total supply, 
     // 500k tokens + 1 wei, i.e., 500000000000000000000001
     const DAO = await ethers.getContractFactory('DAO')
-    dao = await DAO.deploy(token.address, '500000000000000000000001' )
+    dao = await DAO.deploy(token.address, '500000000000000000000001')
 
     // Funder sends 100 Ether to DAO Treasury for Governance
     await funder.sendTransaction({ to: dao.address, value: ether(100) })
@@ -101,7 +101,7 @@ describe('DAO', () => {
         expect(proposal.recipient).to.equal(recipient.address)
       })
 
-      it('emits a propse event', async () => {
+      it('emits a proposal event', async () => {
         await expect(transaction).to.emit(dao, 'Propose')
           .withArgs(1, ether(100), recipient.address, investor1.address)
       })
