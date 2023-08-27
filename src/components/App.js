@@ -35,7 +35,7 @@ function App() {
     const dao = new ethers.Contract(config[31337].dao.address, DAO_ABI, provider)
     setDao(dao)
 
-    // Set Trasury Balance
+    // Fetch treasury balance
     let treasuryBalance = await provider.getBalance(dao.address)
     treasuryBalance = ethers.utils.formatUnits(treasuryBalance, 18)
     setTreasuryBalance(treasuryBalance)
@@ -78,20 +78,21 @@ function App() {
         <Loading />
       ) : (
         <>
-          <Create 
+          <Create
             provider={provider}
             dao={dao}
             setIsLoading={setIsLoading}
           />
+
           <hr/>
 
           <p className='text-center'><strong>Treasury Balance:</strong> {treasuryBalance} ETH</p>
 
-          <hr/> 
+          <hr/>
 
-          <Proposals 
+          <Proposals
             provider={provider}
-            dao={dao} 
+            dao={dao}
             proposals={proposals}
             quorum={quorum}
             setIsLoading={setIsLoading}
