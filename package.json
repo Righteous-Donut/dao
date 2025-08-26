@@ -22,7 +22,7 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
-  "author": "mattpbernal@gmail.com",
+  "author": "mewt7109@gmail.com",
   "license": "ISC",
   "eslintConfig": {
     "extends": [
