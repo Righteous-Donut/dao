@@ -55,20 +55,18 @@ async function main() {
   await transaction.wait()
   console.log(`Sent funds to dao treasury...\n`)
 
-  for (var i = 0; i < 3; i++) {
+  for (let i = 0; i < 3; i++) {
       // Create Proposal
       transaction = await dao.connect(investor1).createProposal(`Proposal ${i + 1}`, ether(100), recipient.address)
       await transaction.wait()
 
-      // Vote 1
+      // Vote (yes)
       transaction = await dao.connect(investor1).vote(i + 1, true)
       await transaction.wait()
 
-      // Vote 2
       transaction = await dao.connect(investor2).vote(i + 1, true)
       await transaction.wait()
 
-      // Vote 3
       transaction = await dao.connect(investor3).vote(i + 1, true)
       await transaction.wait()
 
@@ -79,25 +77,22 @@ async function main() {
       console.log(`Created & Finalized Proposal ${i + 1}\n`)
   }
 
-    console.log(`Creating one more proposal...\n`)
+  console.log(`Creating one more proposal...\n`)
 
-    // Create one more proposal
-    transaction = await dao.connect(investor1).createProposal(`Proposal 4`, ether(100), recipient.address)
-    await transaction.wait()
+  // Create one more proposal
+  transaction = await dao.connect(investor1).createProposal(`Proposal 4`, ether(100), recipient.address)
+  await transaction.wait()
 
-    // Vote 1
-    transaction = await dao.connect(investor2).vote(4, true)
-    await transaction.wait()
+  // Votes (yes)
+  transaction = await dao.connect(investor2).vote(4, true)
+  await transaction.wait()
 
-    // Vote 2
-    transaction = await dao.connect(investor3).vote(4, true)
-    await transaction.wait()
+  transaction = await dao.connect(investor3).vote(4, true)
+  await transaction.wait()
 
-    console.log(`Finished.\n`)
+  console.log(`Finished.\n`)
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;

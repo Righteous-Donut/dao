@@ -14,20 +14,17 @@ async function main() {
   // Deploy Token
   const Token = await hre.ethers.getContractFactory('Token')
   let token = await Token.deploy(NAME, SYMBOL, MAX_SUPPLY)
-
   await token.deployed()
   console.log(`Token deployed to: ${token.address}\n`)
 
-  // Deploy DAO
+  // Deploy DAO with a clean quorum
   const DAO = await hre.ethers.getContractFactory('DAO')
-  const dao = await DAO.deploy(token.address, '500000000000000000000001')
+  const quorum = hre.ethers.utils.parseUnits('500000', 18)
+  const dao = await DAO.deploy(token.address, quorum)
   await dao.deployed()
-
   console.log(`DAO deployed to: ${dao.address}\n`)
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
