@@ -39,6 +39,19 @@ const wagmiConfig = createConfig({
   },
 });
 
+// ---------- helpers ----------
+const ALCHEMY = (id) =>
+  id === sepolia.id
+    ? `https://eth-sepolia.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`
+    : `https://eth-mainnet.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`;
+
+/** Choose a default chain to read from when no wallet is connected. */
+function pickDefaultChainId() {
+  if (config["11155111"]?.dao?.address) return 11155111; // Sepolia
+  if (config["1"]?.dao?.address) return 1;                // Mainnet
+  return 11155111; // sensible default
+}
+
 function App() {
   // MetaMask provider for WRITES
   const [walletProvider, setWalletProvider] = useState(null)
@@ -59,6 +72,34 @@ function App() {
   const [canVote, setCanVote] = useState(false)
   const [votingPower, setVotingPower] = useState("0")
 
+  const initProviders = async () => {
+    // READ provider is always available (no wallet required)
+    let targetChainId = pickDefaultChainId();
+    let rp = new ethers.providers.JsonRpcProvider(ALCHEMY(targetChainId));
+
+      // If a wallet exists, prefer its chain for reads too
+    if (window?.ethereum) {
+      try {
+        // Use "any" to avoid “could not detect network” on initial load/chain switch
+        const wp = new ethers.providers.Web3Provider(window.ethereum, 'any');
+        const net = await wp.getNetwork();                 // may still work without requesting accounts
+        targetChainId = net.chainId;
+        rp = new ethers.providers.JsonRpcProvider(ALCHEMY(targetChainId));
+        setWalletProvider(wp);
+        setChainId(net.chainId);
+      } catch (e) {
+        // If detection fails (no wallet or blocked), we still have rp for reads
+        setWalletProvider(null);
+        setChainId(targetChainId);
+      }
+    } else {
+      setChainId(targetChainId);
+    }
+
+    setReadProvider(rp);
+  };
+
+    
   const makeReadProvider = (id) => {
     if (id === hardhat.id) return new ethers.providers.JsonRpcProvider("http://127.0.0.1:8545")
     if (id === sepolia.id) return new ethers.providers.JsonRpcProvider(`https://eth-sepolia.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`)
@@ -152,7 +193,15 @@ function App() {
     }
   }
 
+  // Re-init providers once on mount
+  useEffect(() => { initProviders(); }, []);
+  // Load data when providers/chain known
+  useEffect(() => { if (readProvider && chainId) setIsLoading(true); }, [readProvider, chainId]);
   // Auto-refresh when account or chain changes (keeps providers in sync with node)
+  useEffect(() => {
+    if (isLoading) loadBlockchainData();
+  }, [isLoading]);
+
   useEffect(() => {
     if (!window.ethereum) return
     const onChain = () => setIsLoading(true)
@@ -165,9 +214,7 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    if (isLoading) loadBlockchainData();
-  }, [isLoading]);
+  
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -193,14 +240,19 @@ function App() {
               <Loading />
             ) : (
               <>
-                {/* Pass the wallet provider for writes */}
-                <Create provider={walletProvider} dao={dao} setIsLoading={setIsLoading} />
-                <hr/>
+                <Create
+                  provider={walletProvider}  // writes (may be null → UI stays read-only)
+                  dao={dao}
+                  setIsLoading={setIsLoading}
+                />
+
+                <hr />
                 <p className='text-center'><strong>Treasury Balance:</strong> {treasuryBalance} ETH</p>
-                <hr/>
+                <hr />
+
                 <Proposals
-                  provider={walletProvider}   // writes
-                  dao={dao}                   // reads (connected to static RPC); writes call dao.connect(signer)
+                  provider={walletProvider}  // writes
+                  dao={dao}                  // reads via readProvider
                   proposals={proposals}
                   quorum={quorum}
                   canVote={canVote}
