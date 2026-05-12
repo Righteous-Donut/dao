@@ -1,231 +1,276 @@
-import { useEffect, useState } from 'react'
-import { Container } from 'react-bootstrap'
+import { useEffect, useState } from "react";
+import { Container } from "react-bootstrap";
 import { WagmiProvider, createConfig, http } from "wagmi";
-import { mainnet, sepolia, hardhat } from "wagmi/chains";
+import { mainnet, arbitrum, hardhat } from "wagmi/chains";
 import { injected, coinbaseWallet } from "wagmi/connectors";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ethers } from 'ethers'
-import '../styles/App.css';
+import { ethers } from "ethers";
+import "../styles/App.css";
 
-import Navigation from './Navigation';
-import Create from './Create';
-import Proposals from './Proposals';
-import Loading from './Loading';
+import Navigation from "./Navigation";
+import Create from "./Create";
+import Proposals from "./Proposals";
+import Loading from "./Loading";
 
-// ABIs
-import DAO_ABI from '../abis/DAO.json'
-import TOKEN_ABI from '../abis/Token.json'
-
-// Config
-import config from '../config.json';
+import DAO_ABI from "../abis/DAO.json";
+import TOKEN_ABI from "../abis/Token.json";
+import config from "../config.json";
 
 const queryClient = new QueryClient();
+
+const ALCHEMY_KEY = process.env.REACT_APP_ALCHEMY_API_KEY;
+
+const RPC_URLS = {
+  [mainnet.id]: "https://ethereum-rpc.publicnode.com",
+  [arbitrum.id]: ALCHEMY_KEY
+    ? `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`
+    : "https://arb1.arbitrum.io/rpc",
+  [hardhat.id]: "http://127.0.0.1:8545",
+};
 
 const wagmiConfig = createConfig({
   connectors: [
     injected({ shimDisconnect: true }),
     coinbaseWallet({
-      appName: "DAO App",
-      jsonRpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`,
+      appName: "Easy DAO",
+      jsonRpcUrl: RPC_URLS[mainnet.id],
     }),
   ],
-  chains: [mainnet, sepolia, hardhat],
+  chains: [mainnet, arbitrum, hardhat],
   transports: {
-    [mainnet.id]: http(`https://eth-mainnet.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`),
-    [sepolia.id]: http(`https://eth-sepolia.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`),
-    [hardhat.id]: http("http://127.0.0.1:8545"),
+    [mainnet.id]: http(RPC_URLS[mainnet.id]),
+    [arbitrum.id]: http(RPC_URLS[arbitrum.id]),
+    [hardhat.id]: http(RPC_URLS[hardhat.id]),
   },
 });
 
-// ---------- helpers ----------
-const ALCHEMY = (id) =>
-  id === sepolia.id
-    ? `https://eth-sepolia.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`
-    : `https://eth-mainnet.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`;
-
-/** Choose a default chain to read from when no wallet is connected. */
 function pickDefaultChainId() {
-  if (config["11155111"]?.dao?.address) return 11155111; // Sepolia
-  if (config["1"]?.dao?.address) return 1;                // Mainnet
-  return 11155111; // sensible default
+  if (config["42161"]?.dao?.address) return 42161;
+  if (config["1"]?.dao?.address) return 1;
+  if (config["31337"]?.dao?.address) return 31337;
+  return 42161;
+}
+
+function makeReadProvider(chainId) {
+  const rpcUrl = RPC_URLS[Number(chainId)];
+  if (!rpcUrl) return null;
+  return new ethers.JsonRpcProvider(rpcUrl);
 }
 
 function App() {
-  // MetaMask provider for WRITES
-  const [walletProvider, setWalletProvider] = useState(null)
-  // Static JSON-RPC provider for READS (prevents “invalid block tag”)
-  const [readProvider, setReadProvider] = useState(null)
+  const [walletProvider, setWalletProvider] = useState(null);
+  const [readProvider, setReadProvider] = useState(null);
 
-  const [dao, setDao] = useState(null)
-  const [treasuryBalance, setTreasuryBalance] = useState("0")
-  const [account, setAccount] = useState(null)
-  const [proposals, setProposals] = useState([])
-  const [quorum, setQuorum] = useState(null)
+  const [dao, setDao] = useState(null);
+  const [treasuryBalance, setTreasuryBalance] = useState("0");
+  const [account, setAccount] = useState(null);
+  const [proposals, setProposals] = useState([]);
+  const [quorum, setQuorum] = useState(0n);
 
   const [chainId, setChainId] = useState(null);
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(true);
+
   const [unsupportedNetwork, setUnsupportedNetwork] = useState(false);
   const [unsupportedReason, setUnsupportedReason] = useState("");
 
-  const [canVote, setCanVote] = useState(false)
-  const [votingPower, setVotingPower] = useState("0")
+  const [canVote, setCanVote] = useState(false);
+  const [votingPower, setVotingPower] = useState("0");
 
   const initProviders = async () => {
-    // READ provider is always available (no wallet required)
     let targetChainId = pickDefaultChainId();
-    let rp = new ethers.providers.JsonRpcProvider(ALCHEMY(targetChainId));
 
-      // If a wallet exists, prefer its chain for reads too
-    if (window?.ethereum) {
+    if (window.ethereum) {
       try {
-        // Use "any" to avoid “could not detect network” on initial load/chain switch
-        const wp = new ethers.providers.Web3Provider(window.ethereum, 'any');
-        const net = await wp.getNetwork();                 // may still work without requesting accounts
-        targetChainId = net.chainId;
-        rp = new ethers.providers.JsonRpcProvider(ALCHEMY(targetChainId));
-        setWalletProvider(wp);
-        setChainId(net.chainId);
-      } catch (e) {
-        // If detection fails (no wallet or blocked), we still have rp for reads
+        const browserProvider = new ethers.BrowserProvider(window.ethereum);
+        const network = await browserProvider.getNetwork();
+
+        targetChainId = Number(network.chainId);
+
+        setWalletProvider(browserProvider);
+        setChainId(targetChainId);
+      } catch (err) {
+        console.warn("Wallet provider detection failed:", err);
         setWalletProvider(null);
         setChainId(targetChainId);
       }
     } else {
+      setWalletProvider(null);
       setChainId(targetChainId);
     }
 
+    const rp = makeReadProvider(targetChainId);
     setReadProvider(rp);
+    setIsLoading(true);
   };
-
-    
-  const makeReadProvider = (id) => {
-    if (id === hardhat.id) return new ethers.providers.JsonRpcProvider("http://127.0.0.1:8545")
-    if (id === sepolia.id) return new ethers.providers.JsonRpcProvider(`https://eth-sepolia.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`)
-    if (id === mainnet.id) return new ethers.providers.JsonRpcProvider(`https://eth-mainnet.g.alchemy.com/v2/${process.env.REACT_APP_ALCHEMY_API_KEY}`)
-    return null
-  }
 
   const loadBlockchainData = async () => {
     try {
-      // 1) MetaMask provider for writes
-      const walletProv = new ethers.providers.Web3Provider(window.ethereum)
-      setWalletProvider(walletProv)
+      setUnsupportedNetwork(false);
+      setUnsupportedReason("");
 
-      const network = await walletProv.getNetwork()
-      setChainId(network.chainId)
+      if (!chainId) return;
 
-      // 2) Static JSON-RPC provider for reads
-      const rp = makeReadProvider(network.chainId)
+      const rp = makeReadProvider(chainId);
+
       if (!rp) {
-        setUnsupportedNetwork(true)
-        setUnsupportedReason("Unsupported network. Please switch to Localhost (31337) or Sepolia (11155111).")
-        setIsLoading(false)
-        return
+        setUnsupportedNetwork(true);
+        setUnsupportedReason(
+          "Unsupported network. Please switch to Localhost (31337), Arbitrum One (42161), or Ethereum Mainnet (1)."
+        );
+        return;
       }
-      setReadProvider(rp)
 
-      const net = config[network.chainId]
+      setReadProvider(rp);
+
+      const net = config[String(chainId)];
+
       if (!net?.dao?.address) {
-        setUnsupportedNetwork(true)
-        setUnsupportedReason("No DAO address in config for this network.")
-        setIsLoading(false)
-        return
+        setUnsupportedNetwork(true);
+        setUnsupportedReason("No DAO address in config for this network.");
+        return;
       }
 
-      // Validate contracts exist on-chain (prevents MetaMask “circuit breaker”)
-      const daoCode = await rp.getCode(net.dao.address)
-      if (daoCode === '0x') {
-        setUnsupportedNetwork(true)
-        setUnsupportedReason(`No contract code at DAO ${net.dao.address} on chain ${network.chainId}.`)
-        setIsLoading(false)
-        return
+      const daoCode = await rp.getCode(net.dao.address);
+
+      if (daoCode === "0x") {
+        setUnsupportedNetwork(true);
+        setUnsupportedReason(
+          `No contract code at DAO ${net.dao.address} on chain ${chainId}.`
+        );
+        return;
       }
 
-      const daoRead = new ethers.Contract(net.dao.address, DAO_ABI, rp)
-      setDao(daoRead)
+      const daoRead = new ethers.Contract(net.dao.address, DAO_ABI, rp);
+      setDao(daoRead);
 
-      const [acc] = await window.ethereum.request({ method: 'eth_requestAccounts' })
-      const user = ethers.utils.getAddress(acc)
-      setAccount(user)
+      let user = null;
 
-      // Resolve & validate token
-      const tokenAddress = net.token?.address || (await daoRead.token?.())
+      if (window.ethereum) {
+        const accounts = await window.ethereum.request({
+          method: "eth_requestAccounts",
+        });
+
+        if (accounts?.[0]) {
+          user = ethers.getAddress(accounts[0]);
+          setAccount(user);
+        }
+      }
+
+      let tokenAddress = net.token?.address;
+
+      if (!tokenAddress && daoRead.token) {
+        tokenAddress = await daoRead.token();
+      }
+
       if (!tokenAddress) {
-        setUnsupportedNetwork(true)
-        setUnsupportedReason("Token address missing in config and DAO.")
-        setIsLoading(false)
-        return
+        setUnsupportedNetwork(true);
+        setUnsupportedReason("Token address missing in config and DAO.");
+        return;
       }
-      const tokenCode = await rp.getCode(tokenAddress)
-      if (tokenCode === '0x') {
-        setUnsupportedNetwork(true)
-        setUnsupportedReason(`No contract code at Token ${tokenAddress} on chain ${network.chainId}.`)
-        setCanVote(false)
+
+      const tokenCode = await rp.getCode(tokenAddress);
+
+      if (tokenCode === "0x") {
+        setUnsupportedNetwork(true);
+        setUnsupportedReason(
+          `No contract code at Token ${tokenAddress} on chain ${chainId}.`
+        );
+        return;
+      }
+
+      if (user) {
+        const token = new ethers.Contract(tokenAddress, TOKEN_ABI, rp);
+        const balance = await token.balanceOf(user);
+
+        setCanVote(balance > 0n);
+        setVotingPower(ethers.formatUnits(balance, 18));
       } else {
-        const token = new ethers.Contract(tokenAddress, TOKEN_ABI, rp)
-        const bal = await token.balanceOf(user) // READ via static RPC
-        setCanVote(ethers.BigNumber.from(bal).gt(0))
-        setVotingPower(ethers.utils.formatUnits(bal, 18))
+        setCanVote(false);
+        setVotingPower("0");
       }
 
-      // Treasury (READ via static RPC)
-      const tb = await rp.getBalance(daoRead.address)
-      setTreasuryBalance(ethers.utils.formatUnits(tb, 18))
+      const daoAddress = await daoRead.getAddress();
+      const treasury = await rp.getBalance(daoAddress);
+      setTreasuryBalance(ethers.formatEther(treasury));
 
-      // Proposals (READ via static RPC)
-      const count = await daoRead.proposalCount()
-      const items = []
-      for (let i = 0; i < count; i++) {
-        const p = await daoRead.proposals(i + 1)
-        items.push(p)
+      const count = await daoRead.proposalCount();
+      const proposalItems = [];
+
+      for (let i = 1n; i <= count; i++) {
+        const proposal = await daoRead.proposals(i);
+        proposalItems.push(proposal);
       }
-      setProposals(items)
 
-      setQuorum(await daoRead.quorum())
+      setProposals(proposalItems);
+      setQuorum(await daoRead.quorum());
     } catch (err) {
-      console.error("loadBlockchainData error:", err)
-      setUnsupportedNetwork(true)
-      setUnsupportedReason(err?.error?.message || err?.reason || err?.message || "Failed to load blockchain data.")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+      console.error("loadBlockchainData error:", err);
 
-  // Re-init providers once on mount
-  useEffect(() => { initProviders(); }, []);
-  // Load data when providers/chain known
-  useEffect(() => { if (readProvider && chainId) setIsLoading(true); }, [readProvider, chainId]);
-  // Auto-refresh when account or chain changes (keeps providers in sync with node)
+      setUnsupportedNetwork(true);
+      setUnsupportedReason(
+        err?.error?.message ||
+          err?.reason ||
+          err?.shortMessage ||
+          err?.message ||
+          "Failed to load blockchain data."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (isLoading) loadBlockchainData();
+    initProviders();
+  }, []);
+
+  useEffect(() => {
+    if (readProvider && chainId) {
+      setIsLoading(true);
+    }
+  }, [readProvider, chainId]);
+
+  useEffect(() => {
+    if (isLoading) {
+      loadBlockchainData();
+    }
   }, [isLoading]);
 
   useEffect(() => {
-    if (!window.ethereum) return
-    const onChain = () => setIsLoading(true)
-    const onAccounts = () => setIsLoading(true)
-    window.ethereum.on('chainChanged', onChain)
-    window.ethereum.on('accountsChanged', onAccounts)
-    return () => {
-      window.ethereum.removeListener('chainChanged', onChain)
-      window.ethereum.removeListener('accountsChanged', onAccounts)
-    }
-  }, [])
+    if (!window.ethereum) return;
 
-  
+    const handleChainChanged = () => {
+      initProviders();
+    };
+
+    const handleAccountsChanged = () => {
+      setIsLoading(true);
+    };
+
+    window.ethereum.on("chainChanged", handleChainChanged);
+    window.ethereum.on("accountsChanged", handleAccountsChanged);
+
+    return () => {
+      window.ethereum.removeListener("chainChanged", handleChainChanged);
+      window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
+    };
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={wagmiConfig}>
-        <RainbowKitProvider chains={[mainnet, sepolia, hardhat]}>
+        <RainbowKitProvider chains={[mainnet, arbitrum, hardhat]}>
           <Container>
             <Navigation account={account} />
-            <h1 className='my-4 text-center'>Welcome to our DAO!</h1>
+
+            <h1 className="my-4 text-center">Welcome to our DAO!</h1>
 
             {unsupportedNetwork && (
-              <div className="alert alert-warning text-center my-3" style={{ whiteSpace: 'pre-wrap' }}>
+              <div
+                className="alert alert-warning text-center my-3"
+                style={{ whiteSpace: "pre-wrap" }}
+              >
                 {unsupportedReason}
               </div>
             )}
@@ -241,18 +286,22 @@ function App() {
             ) : (
               <>
                 <Create
-                  provider={walletProvider}  // writes (may be null → UI stays read-only)
+                  provider={walletProvider}
                   dao={dao}
                   setIsLoading={setIsLoading}
                 />
 
                 <hr />
-                <p className='text-center'><strong>Treasury Balance:</strong> {treasuryBalance} ETH</p>
+
+                <p className="text-center">
+                  <strong>Treasury Balance:</strong> {treasuryBalance} ETH
+                </p>
+
                 <hr />
 
                 <Proposals
-                  provider={walletProvider}  // writes
-                  dao={dao}                  // reads via readProvider
+                  provider={walletProvider}
+                  dao={dao}
                   proposals={proposals}
                   quorum={quorum}
                   canVote={canVote}

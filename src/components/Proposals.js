@@ -1,57 +1,95 @@
-import Table from 'react-bootstrap/Table';
-import Button from 'react-bootstrap/Button';
-import { ethers } from 'ethers'
+import Table from "react-bootstrap/Table";
+import Button from "react-bootstrap/Button";
+import { ethers } from "ethers";
+
+/* global BigInt */
 
 function parseEthersError(err) {
   return (
     err?.error?.data?.message ||
     err?.error?.message ||
     err?.reason ||
+    err?.shortMessage ||
     err?.data?.message ||
     err?.message ||
     null
   );
 }
 
-const Proposals = ({ provider, dao, proposals, quorum, canVote = true, setIsLoading }) => {
+function getProposalId(proposal, index) {
+  return proposal.id ?? index + 1;
+}
+
+function getProposalVotes(proposal) {
+  return proposal.forVotes ?? proposal.votes ?? 0n;
+}
+
+const Proposals = ({
+  provider,
+  dao,
+  proposals,
+  quorum,
+  canVote = true,
+  setIsLoading,
+}) => {
   const voteHandler = async (id) => {
     try {
-      if (!canVote) {
-        window.alert('You need governance tokens to vote.');
+      if (!provider || !dao) {
+        window.alert("Wallet or DAO contract is not connected yet.");
         return;
       }
+
+      if (!canVote) {
+        window.alert("You need governance tokens to vote.");
+        return;
+      }
+
       const signer = await provider.getSigner();
+      const daoWithSigner = dao.connect(signer);
 
-      // 🔎 Simulate first to catch "already voted" or "finalized" before sending a tx
-      await dao.connect(signer).callStatic.vote(id, true);
+      await daoWithSigner.vote.staticCall(id, true);
 
-      const tx = await dao.connect(signer).vote(id, true);
+      const tx = await daoWithSigner.vote(id, true);
       await tx.wait();
     } catch (err) {
-      console.error('Vote error:', err);
+      console.error("Vote error:", err);
+
       const msg = parseEthersError(err);
+
       const friendly =
-        /finaliz/i.test(msg || '') ? 'This proposal is already finalized.' :
-        /already voted|has voted/i.test(msg || '') ? 'You already voted on this proposal.' :
-        /onlyInvestor|not an investor|balance/i.test(msg || '') ? 'You need governance tokens to vote.' :
-        msg || 'User rejected or transaction reverted';
+        /finaliz/i.test(msg || "")
+          ? "This proposal is already finalized."
+          : /already voted|has voted/i.test(msg || "")
+          ? "You already voted on this proposal."
+          : /onlyInvestor|not an investor|balance/i.test(msg || "")
+          ? "You need governance tokens to vote."
+          : msg || "User rejected or transaction reverted.";
+
       window.alert(friendly);
     } finally {
-      setIsLoading(true); // refresh state from chain
+      setIsLoading(true);
     }
   };
 
   const finalizeHandler = async (id) => {
     try {
+      if (!provider || !dao) {
+        window.alert("Wallet or DAO contract is not connected yet.");
+        return;
+      }
+
       const signer = await provider.getSigner();
-      // Pre-flight simulate finalize too
-      await dao.connect(signer).callStatic.finalizeProposal(id);
-      const tx = await dao.connect(signer).finalizeProposal(id);
+      const daoWithSigner = dao.connect(signer);
+
+      await daoWithSigner.finalizeProposal.staticCall(id);
+
+      const tx = await daoWithSigner.finalizeProposal(id);
       await tx.wait();
     } catch (err) {
-      console.error('Finalize error:', err);
-      const msg = parseEthersError(err) || 'User rejected or transaction reverted';
-      window.alert(msg);
+      console.error("Finalize error:", err);
+
+      const msg = parseEthersError(err);
+      window.alert(msg || "User rejected or transaction reverted.");
     } finally {
       setIsLoading(true);
     }
@@ -71,27 +109,32 @@ const Proposals = ({ provider, dao, proposals, quorum, canVote = true, setIsLoad
           <th>Finalize</th>
         </tr>
       </thead>
+
       <tbody>
         {proposals.map((proposal, index) => {
-          const votesBN = ethers.BigNumber.from((proposal.forVotes ?? proposal.votes));
-          const canFinalize = votesBN.gte(ethers.BigNumber.from(quorum));
+          const id = getProposalId(proposal, index);
+          const votes = getProposalVotes(proposal);
+          const quorumValue = quorum ?? 0n;
+          const canFinalize = votes >= quorumValue;
+
           return (
-            <tr key={index}>
-              <td>{proposal.id.toString()}</td>
+            <tr key={id.toString()}>
+              <td>{id.toString()}</td>
               <td>{proposal.name}</td>
               <td>{proposal.recipient}</td>
-              <td>{ethers.utils.formatUnits(proposal.amount, "ether")} ETH</td>
-              <td>{proposal.finalized ? 'Approved' : 'In Progress'}</td>
+              <td>{ethers.formatEther(proposal.amount)} ETH</td>
+              <td>{proposal.finalized ? "Approved" : "In Progress"}</td>
               <td>
-                {ethers.utils.formatUnits(votesBN, 18)} / {ethers.utils.formatUnits(quorum, 18)}
+                {ethers.formatUnits(votes, 18)} /{" "}
+                {ethers.formatUnits(quorumValue, 18)}
               </td>
               <td>
                 {!proposal.finalized && (
                   <Button
                     variant="primary"
-                    style={{ width: '100%' }}
-                    onClick={() => voteHandler(proposal.id)}
-                    disabled={!canVote}
+                    style={{ width: "100%" }}
+                    onClick={() => voteHandler(id)}
+                    disabled={!canVote || !provider || !dao}
                     title={!canVote ? "You need governance tokens to vote" : ""}
                   >
                     Vote
@@ -102,8 +145,9 @@ const Proposals = ({ provider, dao, proposals, quorum, canVote = true, setIsLoad
                 {!proposal.finalized && canFinalize && (
                   <Button
                     variant="primary"
-                    style={{ width: '100%' }}
-                    onClick={() => finalizeHandler(proposal.id)}
+                    style={{ width: "100%" }}
+                    onClick={() => finalizeHandler(id)}
+                    disabled={!provider || !dao}
                   >
                     Finalize
                   </Button>

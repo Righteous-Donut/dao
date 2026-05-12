@@ -1,30 +1,35 @@
-import { config as dotenv } from "dotenv";
-dotenv();
-import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
+require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
-const PRIVATE_KEY = process.env.PRIVATE_KEY!;
+const { MAINNET_RPC_URL, ARB_RPC_URL, PRIVATE_KEY } = process.env;
 
-const config: HardhatUserConfig = {
-  solidity: {
-    version: "0.8.24",
-    settings: { optimizer: { enabled: true, runs: 200 } }
-  },
+if (!MAINNET_RPC_URL) {
+  throw new Error("Missing MAINNET_RPC_URL in .env");
+}
+
+if (!ARB_RPC_URL) {
+  throw new Error("Missing ARB_RPC_URL in .env");
+}
+
+module.exports = {
+  solidity: "0.8.20",
   networks: {
-    hardhat: {},
-    sepolia: {
-      url: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
+    hardhat: {
+      chainId: 31337,
+    },
+    localhost: {
+      url: "http://127.0.0.1:8545",
+      chainId: 31337,
     },
     mainnet: {
-      url: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
-    }
+      url: MAINNET_RPC_URL,
+      chainId: 1,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+    },
+    arbitrumOne: {
+      url: ARB_RPC_URL,
+      chainId: 42161,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+    },
   },
-  etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY || ""
-  }
 };
-
-export default config;
