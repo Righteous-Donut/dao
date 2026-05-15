@@ -2,8 +2,6 @@ import Table from "react-bootstrap/Table";
 import Button from "react-bootstrap/Button";
 import { ethers } from "ethers";
 
-/* global BigInt */
-
 function parseEthersError(err) {
   return (
     err?.error?.data?.message ||
