@@ -232,10 +232,12 @@ function App() {
   }, [readProvider, chainId]);
 
   useEffect(() => {
-    if (isLoading) {
-      loadBlockchainData();
-    }
-  }, [isLoading]);
+  if (isLoading) {
+    loadBlockchainData();
+  }
+
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [isLoading]);
 
   useEffect(() => {
     if (!window.ethereum) return;
